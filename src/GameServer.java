@@ -82,6 +82,12 @@ public class GameServer {
 	// player given id "i 12"
 	// player spawned "p 12 274 384"
 	public void processMsg(Message msg){
+	
+		if(msg == null || msg.Length() == 0){
+			System.out.println("Bad message.");
+			return;
+		}
+	
 		String[] split = msg.getMsg().split(" ");
 		switch(msg.getMsg().charAt(0)){
 		case 'u':
