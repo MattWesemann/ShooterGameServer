@@ -82,8 +82,7 @@ public class GameServer {
 	// player given id "i 12"
 	// player spawned "p 12 274 384"
 	public void processMsg(Message msg){
-	
-		if(msg == null || msg.Length() == 0){
+		if(msg.getMsg() == null || msg.getMsg().length() == 0){
 			System.out.println("Bad message.");
 			return;
 		}
