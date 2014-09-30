@@ -88,12 +88,11 @@ public class ServerNetwork {
 		private OutputStreamWriter out;
 		private boolean shouldClose;
 		private BlockingQueue<String> queue;
-		public static final int QUEUE_SIZE = 100;  // we shouldn't ever hit a backlog this big
 		
 		public ClientThread(Socket socket){
 			this.socket = socket;
 			shouldClose = false;
-			queue = new ArrayBlockingQueue<>(QUEUE_SIZE);
+			queue = new ArrayBlockingQueue<>(GameServer.QUEUE_SIZE);
 		}
 		
 		public Socket getSocket(){

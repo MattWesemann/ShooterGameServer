@@ -8,6 +8,7 @@ public class Bullet {
 	private double x;
 	private double y;
 	private double angle;
+	private int id;
 	
 	private int WIDTH = 5;
 	private int HEIGHT = 5;
@@ -16,13 +17,14 @@ public class Bullet {
 	public static final int FIRE_RATE = 5; // shots per second
 	
 	public Bullet(){
-		this(0, 0, 0);
+		this(0, 0, 0, -1);
 	}
 	
-	public Bullet(int x, int y, double angle){
+	public Bullet(int x, int y, double angle, int id){
 		this.x = x;
 		this.y = y;
 		this.angle = angle;
+		this.id = id;
 	}
 	
 	// for collision detection
@@ -54,5 +56,9 @@ public class Bullet {
 	
 	public int getY(){
 		return (int) y;
+	}
+	
+	public int getShooter(){
+		return id;
 	}
 }

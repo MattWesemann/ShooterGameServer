@@ -11,7 +11,7 @@ import java.net.Socket;
 
 public class GameServer {
 
-	public static final int QUEUE_SIZE = 100;  // we shouldn't ever hit a backlog this big
+	public static final int QUEUE_SIZE = 300;  // we shouldn't ever hit a backlog this big
 	public static final int GAME_TICK_TIME = 15;
 	
 	private List<Player> players;
@@ -31,7 +31,7 @@ public class GameServer {
 	}
 	
 	public void run(){	
-		Map map2 = Map.loadMap("/resources/map1.txt");
+		Map map2 = Map.loadMap("/resources/map2.txt");
 		if(map2 == null){
 			System.out.println("Error loading map.");
 			return;
@@ -48,6 +48,7 @@ public class GameServer {
 		
 		List<Message> msgs = new ArrayList<>();
 		while(true){
+			long time = System.nanoTime();
 			int count = queue.drainTo(msgs);
 			for(int i = 0; i < count; ++i)
 				processMsg(msgs.get(i));
@@ -55,8 +56,13 @@ public class GameServer {
 			
 			processBullets();
 			
+			// delta time
+			time = System.nanoTime() - time;
+			time = time / (1000*1000);  // convert nano to milli
+			
 			try {
-				Thread.sleep(GAME_TICK_TIME);
+				// maintain 60 FPS and try to reduce lag by not sleeping too long if their were lots of messages
+				Thread.sleep(Math.max(GAME_TICK_TIME - time, 0));
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
@@ -65,10 +71,12 @@ public class GameServer {
 	
 	// socket unexpectedly closed "u"
 	// player socket connected   "s"
-	// player connected     "c 12 blue 274 384 t"
+	// player connected     "c 12 b 274 384 t matt 3 1 2 80"
+	// player name change   "n 12 matt"
 	// player disconnected  "d 12"
-	// player killed "k 12"
-	// player moved  "m 12 w"
+	// player killed "k 12 20 2 3"
+	// player hit "h 12"
+	// player moved  "m 12 w t"
 	// player rotategun "r 12 1.535"
 	// player fired  "f 12"
 	// player given id "i 12"
@@ -94,23 +102,41 @@ public class GameServer {
 			break;
 		case 's':
 			Point spawn = map.getSpawnPoint();
-			players.add(new Player((int)spawn.getX(), (int)spawn.getY(), 0.0, Color.cyan, false, (Socket) msg.getObj(), currentId));
+			players.add(new Player((int)spawn.getX(), (int)spawn.getY(), 0.0, Color.cyan, false, (Socket) msg.getObj(), currentId++));
 			network.send("i " + players.get(players.size()-1).getId(), (Socket) msg.getObj());	
 			
 			for(int i = 0; i < players.size() - 1; ++i)
 				network.send("c " + players.get(i).getInfo(), (Socket) msg.getObj());
 			
-			network.sendAll("c " + players.get(players.size()-1).getInfo());
-			currentId++;
+
+			break;
+		case 'n':
+			Player player = getPlayerById(split[1]);
+			if(player == null){
+				System.out.println("Non-existent player renamed");
+				break;
+			}
 			
-			new PlayerHitTask(players.get(players.size()-1).getId()).run();  // now lets spawn this new player
+			player.setName(split[2]);
+			
+			if(player.getInited())
+				network.sendAll(msg.getMsg());  // player exists - rename
+			else {
+				network.sendAll("c " + players.get(players.size()-1).getInfo());  // new player connected
+				new PlayerHitTask(players.get(players.size()-1).getId()).run();   // now lets spawn this new player
+				player.setInited(true);
+			}
+			
 			break;
 		case 'm':	
-			Player player = getPlayerById(split[1]);
+			player = getPlayerById(split[1]);
 			if(player == null){
 				System.out.println("Non-existent player moved");
 				break;
 			}
+			
+			boolean isSprinting = split[3].equals("t");
+			player.setSprinting(isSprinting);
 			
 			switch(split[2]){
 			case "w":
@@ -136,7 +162,7 @@ public class GameServer {
 				break;
 			}
 			
-			bullets.add(new Bullet(player.getGunTipX(), player.getGunTipY(), player.getAngle()));
+			bullets.add(new Bullet(player.getGunTipX(), player.getGunTipY(), player.getAngle(), player.getId()));
 			network.sendAll(msg.getMsg());
 			
 			break;
@@ -170,17 +196,45 @@ public class GameServer {
 			if(map.checkBulletCollision(bullets.get(i)))
 				bullets.remove(i);
 			else if((index = checkBulletHit(bullets.get(i))) >= 0){
-				playerHit(players.get(index));
+				playerHit(players.get(index), bullets.get(i).getShooter());
 				bullets.remove(i);
 			} else
 				bullets.get(i).move();
 		}
 	}
 	
-	public void playerHit(Player player){
-		player.setDead(true);
-		network.sendAll("k " + player.getId());
-		new Timer().schedule(new PlayerHitTask(player.getId()), 3*1000);
+	// id is shooter
+	public void playerHit(Player player, int id){	
+		player.setHealth(player.getHealth()-20);
+		if(player.getHealth() == 0){
+			player.setDead(true);
+			
+			String str = "";	
+			List<Integer> shooters = player.getShooters();
+			shooters.remove(new Integer(id));
+			for(Integer i : shooters)
+				str += " " + i;		
+			
+			network.sendAll("k " + player.getId() + " " + id + str);
+			player.setDeaths(player.getDeaths() + 1);
+			
+			Player shooter = getPlayerById(id);
+			if(shooter != null)
+				shooter.setKills(shooter.getKills() + 1);
+
+			for(Integer i : shooters)
+				if((shooter = getPlayerById(i)) != null)
+					shooter.setAssists(shooter.getAssists() + 1);
+				else
+					System.out.println("Non-existent assister");
+			
+			shooters.clear();
+			
+			new Timer().schedule(new PlayerHitTask(player.getId()), 3*1000);
+		} else {
+			player.addShooter(id);
+			network.sendAll("h " + player.getId());
+		}
 	}
 
 	class PlayerHitTask extends TimerTask {
@@ -202,6 +256,7 @@ public class GameServer {
 			player.setX((int) spawn.getX());
 			player.setY((int) spawn.getY());
 			player.setDead(false);
+			player.setHealth(Player.INIT_HEALTH);
 			network.sendAll("p " + player.getId() + " " + player.getX() + " " + player.getY());
 		}
 	}
